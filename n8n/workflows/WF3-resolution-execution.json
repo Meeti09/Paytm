@@ -1,0 +1,166 @@
+{
+  "name": "Paytm Pulse — WF3 Resolution Execution",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "paytm-pulse/resolution",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "wf3-webhook",
+      "name": "Resolution Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-620, 0],
+      "webhookId": "paytm-pulse-resolution",
+      "notes": "Only reached after the Pulse policy engine has cleared the action. n8n never decides whether an action is allowed."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "version": 2 },
+          "conditions": [
+            {
+              "id": "is-refund",
+              "leftValue": "={{ $json.body.action }}",
+              "rightValue": "refund",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "wf3-branch",
+      "name": "Refund or Escalate?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [-400, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.PULSE_API_URL }}/paytm/refund",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "X-Pulse-Internal-Key", "value": "={{ $env.INTERNAL_API_KEY }}" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ transaction_id: $('Resolution Webhook').first().json.body.transaction_id, amount: $('Resolution Webhook').first().json.body.amount, reference: 'PULSE-' + $('Resolution Webhook').first().json.body.mission_id + '-' + $('Resolution Webhook').first().json.body.action_id }) }}",
+        "options": { "timeout": 15000 }
+      },
+      "id": "wf3-refund",
+      "name": "Execute Refund",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-180, -120]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.PULSE_API_URL }}/paytm/refund/verify",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "X-Pulse-Internal-Key", "value": "={{ $env.INTERNAL_API_KEY }}" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ transaction_id: $('Resolution Webhook').first().json.body.transaction_id, amount: $('Resolution Webhook').first().json.body.amount }) }}",
+        "options": { "timeout": 15000 }
+      },
+      "id": "wf3-verify",
+      "name": "Verify Refund",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [40, -120],
+      "notes": "Reads the ledger back. The mission only completes if this confirms the refund."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Escalation path — no money moves; the case goes to a human specialist.\nreturn [{ json: { assignment: { assigned_agent: 'human_specialist' }, verification: { verified: true, reason: 'Case reassigned' } } }];"
+      },
+      "id": "wf3-escalate",
+      "name": "Hand To Specialist",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-180, 120]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.PULSE_API_URL }}/paytm/notification",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "X-Pulse-Internal-Key", "value": "={{ $env.INTERNAL_API_KEY }}" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ customer_id: $('Resolution Webhook').first().json.body.customer_id, channel: $('Resolution Webhook').first().json.body.channel || 'sms', message: $('Resolution Webhook').first().json.body.message }) }}",
+        "options": { "timeout": 15000 }
+      },
+      "id": "wf3-notify",
+      "name": "Notify Customer",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [260, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Report exactly what happened, including failures. Never fabricate success.\nconst body = $('Resolution Webhook').first().json.body;\nconst notification = $json;\n\nlet refund = null;\nlet verification = { verified: true, reason: 'No refund in this path' };\nlet assignment = null;\n\ntry { refund = $('Execute Refund').first().json; } catch (e) { refund = null; }\ntry { verification = $('Verify Refund').first().json; } catch (e) { /* escalation path */ }\ntry { assignment = $('Hand To Specialist').first().json.assignment; } catch (e) { assignment = null; }\n\nconst refundOk = body.action !== 'refund' || (refund && refund.success);\n\nreturn [{\n  json: {\n    success: Boolean(refundOk),\n    error: refundOk ? '' : 'Refund rejected by the payments boundary',\n    action_id: body.action_id,\n    status: refundOk ? 'executed' : 'failed',\n    refund,\n    verification,\n    assignment,\n    notification\n  }\n}];"
+      },
+      "id": "wf3-result",
+      "name": "Build Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [480, 0]
+    },
+    {
+      "parameters": { "options": {} },
+      "id": "wf3-respond",
+      "name": "Return Result",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [700, 0]
+    }
+  ],
+  "connections": {
+    "Resolution Webhook": {
+      "main": [[{ "node": "Refund or Escalate?", "type": "main", "index": 0 }]]
+    },
+    "Refund or Escalate?": {
+      "main": [
+        [{ "node": "Execute Refund", "type": "main", "index": 0 }],
+        [{ "node": "Hand To Specialist", "type": "main", "index": 0 }]
+      ]
+    },
+    "Execute Refund": {
+      "main": [[{ "node": "Verify Refund", "type": "main", "index": 0 }]]
+    },
+    "Verify Refund": {
+      "main": [[{ "node": "Notify Customer", "type": "main", "index": 0 }]]
+    },
+    "Hand To Specialist": {
+      "main": [[{ "node": "Notify Customer", "type": "main", "index": 0 }]]
+    },
+    "Notify Customer": {
+      "main": [[{ "node": "Build Result", "type": "main", "index": 0 }]]
+    },
+    "Build Result": {
+      "main": [[{ "node": "Return Result", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": { "executionOrder": "v1" },
+  "active": false,
+  "tags": ["paytm-pulse", "resolve"],
+  "meta": {
+    "description": "WF3 — executes a cleared action against the simulated Paytm boundary, verifies it against the ledger, then notifies the customer."
+  }
+}

@@ -1,0 +1,80 @@
+{
+  "name": "Paytm Pulse — WF1 Customer Issue Intake",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "paytm-pulse/issue-intake",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "wf1-webhook",
+      "name": "Issue Intake Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-260, 0],
+      "webhookId": "paytm-pulse-issue-intake"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SARVAM_BASE_URL || 'https://api.sarvam.ai' }}/text-lid",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "api-subscription-key",
+              "value": "={{ $env.SARVAM_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ input: $json.body.message }) }}",
+        "options": { "timeout": 8000 }
+      },
+      "id": "wf1-sarvam",
+      "name": "Sarvam — Identify Language",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-40, 0],
+      "onError": "continueRegularOutput",
+      "notes": "Falls through to the local classifier if Sarvam is unavailable."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normalise the inbound message into a structured support intent.\n// Sarvam supplies the language when reachable; the keyword rules below are\n// the fallback so intake never blocks on a third-party service.\nconst incoming = $('Issue Intake Webhook').first().json.body || {};\nconst text = String(incoming.message || '');\nconst low = text.toLowerCase();\n\nlet language = 'en-IN';\nlet script = 'Latin';\nlet source = 'fallback';\n\nconst lid = $json || {};\nif (lid.language_code) {\n  language = lid.language_code;\n  script = lid.script_code || script;\n  source = 'sarvam';\n} else if (/[\\u0900-\\u097F]/.test(text)) {\n  language = 'hi-IN';\n  script = 'Devanagari';\n}\n\nconst any = (words) => words.some((w) => low.includes(w.toLowerCase()));\nconst DEBIT = ['कट गया', 'debited', 'debit', 'पैसा गया'];\nconst NOT_RECEIVED = ['नहीं मिला', 'not received', 'not credited', 'nahi mila'];\nconst DELAY = ['delay', 'delayed', 'देर', 'pending', 'stuck'];\nconst REFUND = ['refund', 'रिफंड', 'वापस'];\nconst STRONG_NEG = ['तीन बार', 'कई बार', 'अभी तक', 'third time', 'शिकायत कर चुका', 'worst', 'fed up'];\n\nlet intent = 'general_support';\nif (any(DEBIT) && any(NOT_RECEIVED)) intent = 'payment_failed_after_debit';\nelse if (any(REFUND)) intent = 'refund_status';\nelse if (any(DELAY)) intent = 'payment_delayed';\nelse if (any(DEBIT)) intent = 'payment_failed_after_debit';\n\nlet sentiment = 'neutral';\nif (any(STRONG_NEG) || (text.match(/!/g) || []).length >= 2) sentiment = 'strongly_negative';\nelse if (any(['problem', 'issue', 'परेशान', 'failed'])) sentiment = 'negative';\n\nconst amountMatch = text.match(/(?:₹|rs\\.?|inr)\\s*([\\d,]+)|([\\d,]{3,})/i);\nconst rawAmount = amountMatch ? (amountMatch[1] || amountMatch[2]) : null;\n\nreturn [{\n  json: {\n    success: true,\n    analysis: {\n      intent,\n      language,\n      script,\n      sentiment,\n      amount_mentioned: rawAmount ? Number(String(rawAmount).replace(/,/g, '')) : null,\n      normalized_text: text.trim(),\n      source,\n      source_detail: source === 'sarvam' ? 'Sarvam text-lid' : 'Local classifier (n8n)'\n    }\n  }\n}];"
+      },
+      "id": "wf1-normalize",
+      "name": "Normalise Intent",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [180, 0]
+    },
+    {
+      "parameters": { "options": {} },
+      "id": "wf1-respond",
+      "name": "Return Intake",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [400, 0]
+    }
+  ],
+  "connections": {
+    "Issue Intake Webhook": {
+      "main": [[{ "node": "Sarvam — Identify Language", "type": "main", "index": 0 }]]
+    },
+    "Sarvam — Identify Language": {
+      "main": [[{ "node": "Normalise Intent", "type": "main", "index": 0 }]]
+    },
+    "Normalise Intent": {
+      "main": [[{ "node": "Return Intake", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": { "executionOrder": "v1" },
+  "active": false,
+  "tags": ["paytm-pulse", "resolve"],
+  "meta": {
+    "description": "WF1 — turns a raw customer message into a structured support intent for the Resolve teammate."
+  }
+}

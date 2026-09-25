@@ -1,0 +1,123 @@
+{
+  "name": "Paytm Pulse — WF6 Follow-up & Meeting",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "paytm-pulse/followup",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "wf6-webhook",
+      "name": "Follow-up Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-400, 0],
+      "webhookId": "paytm-pulse-followup"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.PULSE_API_URL }}/paytm/meeting",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "X-Pulse-Internal-Key", "value": "={{ $env.INTERNAL_API_KEY }}" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ lead_id: $json.body.lead_id, slot: $json.body.slot, attendee: $json.body.attendee || '' }) }}",
+        "options": { "timeout": 15000 }
+      },
+      "id": "wf6-meeting",
+      "name": "Book Meeting (simulated)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-180, 0]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.PULSE_API_URL }}/paytm/leads",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "mission_id",
+              "value": "={{ $('Follow-up Webhook').first().json.body.mission_id }}"
+            }
+          ]
+        },
+        "options": { "timeout": 15000 }
+      },
+      "id": "wf6-lead",
+      "name": "Reload Lead",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [40, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.PULSE_API_URL }}/paytm/onboarding",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "X-Pulse-Internal-Key", "value": "={{ $env.INTERNAL_API_KEY }}" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ merchant_id: ($json.leads || []).find(l => l.id === $('Follow-up Webhook').first().json.body.lead_id)?.merchant_id }) }}",
+        "options": { "timeout": 15000 }
+      },
+      "id": "wf6-onboarding",
+      "name": "Initiate Onboarding (simulated)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [260, 0],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const booking = $('Book Meeting (simulated)').first().json;\nconst onboarding = $json;\n\nreturn [{\n  json: {\n    success: Boolean(booking && booking.success),\n    error: booking && booking.success ? '' : 'Meeting booking failed',\n    booking,\n    onboarding\n  }\n}];"
+      },
+      "id": "wf6-result",
+      "name": "Build Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [480, 0]
+    },
+    {
+      "parameters": { "options": {} },
+      "id": "wf6-respond",
+      "name": "Return Booking",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [700, 0]
+    }
+  ],
+  "connections": {
+    "Follow-up Webhook": {
+      "main": [[{ "node": "Book Meeting (simulated)", "type": "main", "index": 0 }]]
+    },
+    "Book Meeting (simulated)": {
+      "main": [[{ "node": "Reload Lead", "type": "main", "index": 0 }]]
+    },
+    "Reload Lead": {
+      "main": [[{ "node": "Initiate Onboarding (simulated)", "type": "main", "index": 0 }]]
+    },
+    "Initiate Onboarding (simulated)": {
+      "main": [[{ "node": "Build Result", "type": "main", "index": 0 }]]
+    },
+    "Build Result": {
+      "main": [[{ "node": "Return Booking", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": { "executionOrder": "v1" },
+  "active": false,
+  "tags": ["paytm-pulse", "grow"],
+  "meta": {
+    "description": "WF6 — books the onboarding meeting for a sales-ready lead and hands off to the simulated onboarding flow."
+  }
+}

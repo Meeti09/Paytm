@@ -1,0 +1,146 @@
+{
+  "name": "Paytm Pulse — WF2 Transaction Investigation",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "paytm-pulse/investigation",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "wf2-webhook",
+      "name": "Investigation Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-520, 0],
+      "webhookId": "paytm-pulse-investigation"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.PULSE_API_URL }}/paytm/customer/{{ $json.body.customer_id }}",
+        "options": { "timeout": 10000 }
+      },
+      "id": "wf2-customer",
+      "name": "Customer Lookup",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-300, 0]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.PULSE_API_URL }}/paytm/customer/{{ $('Investigation Webhook').first().json.body.customer_id }}/disputed-transaction",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "amount",
+              "value": "={{ $('Investigation Webhook').first().json.body.amount_hint || '' }}"
+            }
+          ]
+        },
+        "options": { "timeout": 10000 }
+      },
+      "id": "wf2-transaction",
+      "name": "Transaction Lookup",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-100, 0],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.PULSE_API_URL }}/paytm/merchant/{{ $json.merchant_id }}",
+        "options": { "timeout": 10000 }
+      },
+      "id": "wf2-merchant",
+      "name": "Merchant Lookup",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [100, 0],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.PULSE_API_URL }}/paytm/customer/{{ $('Investigation Webhook').first().json.body.customer_id }}/history",
+        "options": { "timeout": 10000 }
+      },
+      "id": "wf2-history",
+      "name": "Support History",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [300, 0]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.PULSE_API_URL }}/paytm/transaction/{{ $('Transaction Lookup').first().json.id }}/refund-eligibility",
+        "options": { "timeout": 10000 }
+      },
+      "id": "wf2-eligibility",
+      "name": "Refund Eligibility",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [500, 0]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.PULSE_API_URL }}/paytm/policy/{{ $('Support History').first().json.prior_unresolved_cases > 0 ? 'POL-ESCALATION-01' : 'POL-REFUND-01' }}",
+        "options": { "timeout": 10000 }
+      },
+      "id": "wf2-policy",
+      "name": "Policy Lookup",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [700, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Assemble the evidence bundle the Resolve teammate reasons over.\n// No decision is made here — WF2 only gathers facts.\nconst customer = $('Customer Lookup').first().json;\nconst transaction = $('Transaction Lookup').first().json;\nconst merchant = $('Merchant Lookup').first().json;\nconst history = $('Support History').first().json;\nconst eligibility = $('Refund Eligibility').first().json;\nconst policy = $('Policy Lookup').first().json;\n\nif (!transaction || !transaction.id) {\n  return [{ json: { success: true, customer, transaction: null } }];\n}\n\nreturn [{\n  json: {\n    success: true,\n    customer,\n    transaction,\n    merchant,\n    history,\n    eligibility,\n    policy\n  }\n}];"
+      },
+      "id": "wf2-assemble",
+      "name": "Assemble Evidence",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 0]
+    },
+    {
+      "parameters": { "options": {} },
+      "id": "wf2-respond",
+      "name": "Return Evidence",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1100, 0]
+    }
+  ],
+  "connections": {
+    "Investigation Webhook": {
+      "main": [[{ "node": "Customer Lookup", "type": "main", "index": 0 }]]
+    },
+    "Customer Lookup": {
+      "main": [[{ "node": "Transaction Lookup", "type": "main", "index": 0 }]]
+    },
+    "Transaction Lookup": {
+      "main": [[{ "node": "Merchant Lookup", "type": "main", "index": 0 }]]
+    },
+    "Merchant Lookup": {
+      "main": [[{ "node": "Support History", "type": "main", "index": 0 }]]
+    },
+    "Support History": {
+      "main": [[{ "node": "Refund Eligibility", "type": "main", "index": 0 }]]
+    },
+    "Refund Eligibility": {
+      "main": [[{ "node": "Policy Lookup", "type": "main", "index": 0 }]]
+    },
+    "Policy Lookup": {
+      "main": [[{ "node": "Assemble Evidence", "type": "main", "index": 0 }]]
+    },
+    "Assemble Evidence": {
+      "main": [[{ "node": "Return Evidence", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": { "executionOrder": "v1" },
+  "active": false,
+  "tags": ["paytm-pulse", "resolve"],
+  "meta": {
+    "description": "WF2 — customer, transaction, merchant, history, eligibility and policy lookups. Read-only: gathers evidence, decides nothing."
+  }
+}

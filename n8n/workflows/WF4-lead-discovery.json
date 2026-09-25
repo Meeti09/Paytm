@@ -1,0 +1,73 @@
+{
+  "name": "Paytm Pulse — WF4 Lead Discovery",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "paytm-pulse/lead-discovery",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "wf4-webhook",
+      "name": "Discovery Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-400, 0],
+      "webhookId": "paytm-pulse-lead-discovery"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.PULSE_API_URL }}/paytm/merchants",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "location", "value": "={{ $json.body.location }}" },
+            { "name": "category", "value": "={{ $json.body.category || '' }}" }
+          ]
+        },
+        "options": { "timeout": 15000 }
+      },
+      "id": "wf4-search",
+      "name": "Search Demo Merchants",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-180, 0],
+      "notes": "Seeded demo dataset only. Makes no claim about real businesses."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Filter out merchants already on Paytm, then score the rest.\n// Same deterministic formula as app/agents/scoring.py — every point on a lead\n// score maps to a named factor so it can be explained in the UI.\nconst body = $('Discovery Webhook').first().json.body || {};\nconst location = String(body.location || '');\nconst merchants = ($json.merchants || []);\n\nconst CATEGORY_FIT = { Cafe: 20, Restaurant: 20, Grocery: 18, Electronics: 18, Bakery: 16, Pharmacy: 16, 'Sweet Shop': 16, Fitness: 14, Apparel: 14, Salon: 12, Hardware: 10, Bookstore: 10, Stationery: 8 };\nconst VOLUME_BENCHMARK = 900000;\nconst inr = (v) => '₹' + Math.round(v).toLocaleString('en-IN');\n\nconst skipped = merchants.filter((m) => m.paytm_status === 'active');\nconst candidates = merchants.filter((m) => m.paytm_status !== 'active');\n\nconst prospects = candidates.map((m) => {\n  const breakdown = [];\n  const reasons = [];\n\n  const volumePoints = Math.min(35, Math.round((m.estimated_volume || 0) / VOLUME_BENCHMARK * 35));\n  breakdown.push({ factor: 'Transaction potential', points: volumePoints, max: 35, detail: inr(m.estimated_volume || 0) + ' estimated monthly volume (demo dataset)' });\n  if (volumePoints >= 24) reasons.push('High estimated transaction potential (' + inr(m.estimated_volume) + '/month)');\n  else if (volumePoints >= 14) reasons.push('Moderate transaction potential (' + inr(m.estimated_volume) + '/month)');\n  else reasons.push('Low estimated volume (' + inr(m.estimated_volume) + '/month)');\n\n  const categoryPoints = CATEGORY_FIT[m.category] ?? 10;\n  breakdown.push({ factor: 'Category fit', points: categoryPoints, max: 20, detail: (m.category || 'Unclassified') + ' — digital-payment affinity' });\n  if (categoryPoints >= 16) reasons.push(m.category + ' is a high-fit category for digital payments');\n\n  const hasWebsite = Boolean(m.website);\n  const hasContact = Boolean(m.contact);\n  const digitalPoints = (hasWebsite ? 12 : 0) + (hasContact ? 8 : 0);\n  let digitalDetail = 'No website and no reachable contact';\n  if (hasWebsite && hasContact) { digitalDetail = 'Website and direct contact available'; reasons.push('Strong digital presence and a reachable contact'); }\n  else if (hasContact) { digitalDetail = 'Direct contact available, no website'; reasons.push('Reachable contact, limited digital presence'); }\n  else if (hasWebsite) { digitalDetail = 'Website available, no direct contact'; }\n  else { reasons.push('No reachable contact in the demo dataset'); }\n  breakdown.push({ factor: 'Digital presence', points: digitalPoints, max: 20, detail: digitalDetail });\n\n  const inTerritory = !location || String(m.location || '').toLowerCase().includes(location.toLowerCase());\n  breakdown.push({ factor: 'Territory match', points: inTerritory ? 15 : 0, max: 15, detail: inTerritory ? m.location + ' matches the mission territory' : m.location + ' is outside the mission territory' });\n  if (inTerritory && location) reasons.push('Located in the target territory (' + m.location + ')');\n\n  breakdown.push({ factor: 'Availability', points: 10, max: 10, detail: 'Not onboarded in the demo dataset' });\n  reasons.push('Not onboarded in the demo dataset');\n\n  const score = breakdown.reduce((sum, f) => sum + f.points, 0);\n  const opportunity = score >= 80 ? 'High' : score >= 65 ? 'Medium' : 'Low';\n\n  return { merchant: m, score, breakdown, reasons, opportunity };\n});\n\nprospects.sort((a, b) => b.score - a.score);\n\nreturn [{ json: { success: true, matched: merchants.length, skipped_onboarded: skipped, prospects } }];"
+      },
+      "id": "wf4-score",
+      "name": "Filter, Enrich, Score, Rank",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [40, 0]
+    },
+    {
+      "parameters": { "options": {} },
+      "id": "wf4-respond",
+      "name": "Return Prospects",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [260, 0]
+    }
+  ],
+  "connections": {
+    "Discovery Webhook": {
+      "main": [[{ "node": "Search Demo Merchants", "type": "main", "index": 0 }]]
+    },
+    "Search Demo Merchants": {
+      "main": [[{ "node": "Filter, Enrich, Score, Rank", "type": "main", "index": 0 }]]
+    },
+    "Filter, Enrich, Score, Rank": {
+      "main": [[{ "node": "Return Prospects", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": { "executionOrder": "v1" },
+  "active": false,
+  "tags": ["paytm-pulse", "grow"],
+  "meta": {
+    "description": "WF4 — discovers merchants in a territory, skips those already on Paytm, then scores and ranks the rest with an explainable formula."
+  }
+}

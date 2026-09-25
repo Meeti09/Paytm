@@ -1,0 +1,89 @@
+{
+  "name": "Paytm Pulse — WF5 Outreach & Qualification",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "paytm-pulse/outreach",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "wf5-webhook",
+      "name": "Outreach Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-400, 0],
+      "webhookId": "paytm-pulse-outreach"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Fan the batch out to one item per lead so each send is its own execution step.\nconst body = $json.body || {};\nconst messages = body.messages || {};\nreturn Object.entries(messages).map(([lead_id, message]) => ({\n  json: { lead_id, message, channel: body.channel || 'simulated' }\n}));"
+      },
+      "id": "wf5-split",
+      "name": "Split Leads",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-180, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.PULSE_API_URL }}/paytm/leads/{{ $json.lead_id }}/outreach",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "X-Pulse-Internal-Key", "value": "={{ $env.INTERNAL_API_KEY }}" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ message: $json.message, channel: $json.channel }) }}",
+        "options": { "timeout": 15000 }
+      },
+      "id": "wf5-send",
+      "name": "Send Outreach (simulated)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [40, 0],
+      "notes": "Simulated channel. No message leaves the demo environment."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Collect every send result. A partial failure is reported, not hidden.\nconst results = $input.all().map((item) => item.json);\nconst sent = results.filter((r) => r.success).map((r) => r.lead_id);\nconst failed = results.filter((r) => !r.success);\n\nreturn [{\n  json: {\n    success: failed.length === 0,\n    error: failed.length ? failed.length + ' outreach send(s) failed' : '',\n    sent,\n    failed,\n    delivery: 'simulated'\n  }\n}];"
+      },
+      "id": "wf5-collect",
+      "name": "Collect Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [260, 0]
+    },
+    {
+      "parameters": { "options": {} },
+      "id": "wf5-respond",
+      "name": "Return Outreach Result",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [480, 0]
+    }
+  ],
+  "connections": {
+    "Outreach Webhook": {
+      "main": [[{ "node": "Split Leads", "type": "main", "index": 0 }]]
+    },
+    "Split Leads": {
+      "main": [[{ "node": "Send Outreach (simulated)", "type": "main", "index": 0 }]]
+    },
+    "Send Outreach (simulated)": {
+      "main": [[{ "node": "Collect Results", "type": "main", "index": 0 }]]
+    },
+    "Collect Results": {
+      "main": [[{ "node": "Return Outreach Result", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": { "executionOrder": "v1" },
+  "active": false,
+  "tags": ["paytm-pulse", "grow"],
+  "meta": {
+    "description": "WF5 — sends personalised outreach on the simulated channel and moves each lead to contacted. Qualification of the reply happens in the Grow agent."
+  }
+}

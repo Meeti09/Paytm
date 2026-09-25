@@ -1,0 +1,123 @@
+@import "tailwindcss";
+
+/* ---------------------------------------------------------------------------
+   Paytm Pulse design tokens — Design.md §3.
+   One saturated brand colour (Paytm cyan), navy typography, cool off-white
+   background, white surfaces, hairline borders. No gradients, no purple.
+--------------------------------------------------------------------------- */
+
+:root {
+  --paytm-blue: #00baf2;
+  --paytm-blue-deep: #01579b;
+
+  --ink: #0a2540;
+  --ink-muted: #5c6b7a;
+
+  --bg: #f5f7fa;
+  --surface: #ffffff;
+  --border: #e3e8ee;
+
+  --success: #0ba860;
+  --warning: #f5a623;
+  --danger: #e13b3b;
+}
+
+@theme inline {
+  --color-brand: var(--paytm-blue);
+  --color-brand-deep: var(--paytm-blue-deep);
+  --color-ink: var(--ink);
+  --color-muted: var(--ink-muted);
+  --color-canvas: var(--bg);
+  --color-surface: var(--surface);
+  --color-hairline: var(--border);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+
+  --radius-card: 10px;
+  --radius-control: 8px;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  font-feature-settings: "tnum" 1;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Tabular numerals everywhere a figure matters. */
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+.label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+
+/* Focus states — visible, never glowing. Design.md §13, §41. */
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--paytm-blue);
+  outline-offset: 2px;
+}
+
+/* Design.md §39 — subtle motion only. */
+@keyframes pulse-row-in {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.row-in {
+  animation: pulse-row-in 220ms ease-out both;
+}
+
+@keyframes pulse-dot {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.live-dot {
+  animation: pulse-dot 1.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .row-in,
+  .live-dot {
+    animation: none;
+  }
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: #d7dee8;
+  border-radius: 6px;
+  border: 3px solid var(--bg);
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
