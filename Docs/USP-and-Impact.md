@@ -25,7 +25,7 @@ that last step, and makes closing it *safe enough to trust with money*.
 
 | # | Differentiator | Why nobody else ships it | Where it lives |
 |---|---|---|---|
-| **1** | **Missions, not conversations** | Chat is the default UI for AI. Pulse has **no chat box anywhere** — the central object is a mission with an owner, a policy verdict and a measurable outcome. | `backend/app/services/mission.py`, the three screens |
+| **1** | **Missions, not conversations** | Chat is the default UI for AI. Pulse has **no chat box anywhere** — the central object is a mission with an owner, a policy verdict and a measurable outcome. | `backend/app/services/mission_service.py`, the three screens |
 | **2** | **Autonomy governed by deterministic code, not a prompt** | "Be careful with refunds" in a system prompt is not a control. Pulse's policy engine is plain Python evaluating **five named rules**. The model cannot see it, reach it, or override it. | `backend/app/policy/risk.py` |
 | **3** | **Verified outcomes, not claimed ones** | Assistants say *"I've processed your refund."* Pulse **re-reads the transaction ledger** after execution. No matching row → the mission moves to *needs attention*, not to green. | verification step in the mission loop |
 | **4** | **Explainable escalation** | Most agents escalate on an opaque confidence score. Every Pulse stop names the **rule that fired, the evidence, and the exact impact of approving**. | Approval Queue |
@@ -129,7 +129,7 @@ Sales-ready            1     leads qualified from a reply
 Meetings booked        1     leads with a booked meeting
 ```
 
-The Grow figures fall out of the formula in `agents/scoring.py`, not a constant
+The Grow figures fall out of the formula in `backend/app/agents/scoring.py`, not a constant
 — change a merchant's estimated volume and they change.
 
 **A deliberate non-claim:** we do not assert deflection percentages or
