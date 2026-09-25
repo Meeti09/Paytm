@@ -11,10 +11,19 @@ Two AI teammates that own business outcomes instead of answering questions.
 
 > **Give AI a job, not a prompt.**
 
+### ▶ Live demo — **https://paytm-pulse-eight.vercel.app**
+
+Press **Reset demo**, then run Scenario B and approve it in the queue.
+
+> The API is on Render's free tier and sleeps after ~15 minutes idle. The first
+> request then takes ~50s to wake it. **Before demoing, open
+> [the API health check](https://paytm-pulse-api.onrender.com/api/health) once
+> and wait for it to return** — after that everything is instant.
+
 📄 **[Proposed Solution](Docs/Proposed-Solution.md)** — the submission write-up:
 problem, approach, differentiators, measurable outcomes, limitations.
 Also: [Architecture](Docs/Architecture.md) · [Design system](Docs/Design.md) ·
-[n8n workflows](n8n/README.md).
+[n8n workflows](n8n/README.md) · [Deployment](#deployment).
 
 ---
 
@@ -219,6 +228,41 @@ cd backend && .venv/Scripts/python scripts/smoke_test.py
 It drives the public API only: reset → autonomous resolution → escalation →
 approve → sentiment escalation → reject → Grow → takeover → outcomes → reset,
 asserting at each step that the ledger changed only when it should have.
+
+---
+
+## Deployment
+
+| Piece | Host | URL |
+|---|---|---|
+| Frontend (Next.js) | Vercel | https://paytm-pulse-eight.vercel.app |
+| Backend (FastAPI) | Render | https://paytm-pulse-api.onrender.com |
+
+Both auto-deploy from `main`.
+
+**Why the backend isn't on Vercel.** It needs a persistent process, and
+serverless breaks it in four places: missions run as background `asyncio` tasks
+that outlive the HTTP response; the event bus holds in-memory SSE subscribers,
+so a client on one instance would never see events published from another;
+SQLite needs a writable filesystem; and the task registry is per-process. Even
+with Postgres and Redis swapped in, Vercel has no long-running worker runtime
+for the agent loop. Render runs it as an ordinary web service, which suits all
+four. The blueprint is in [`render.yaml`](render.yaml).
+
+The frontend reaches the backend through `NEXT_PUBLIC_API_URL` (a URL, not a
+secret). The backend allows the Vercel origin via `CORS_ORIGIN_REGEX`, which
+covers preview deployments too.
+
+Verify the deployment the same way you'd verify a local one:
+
+```bash
+cd backend && PULSE_API_URL=https://paytm-pulse-api.onrender.com .venv/Scripts/python scripts/smoke_test.py
+```
+
+Render's free tier has an ephemeral filesystem, so the SQLite demo dataset is
+recreated on each restart — the same state **Reset demo** produces. Attach a
+Postgres instance and set `DATABASE_URL` to persist mission history; the psycopg
+driver is already in `requirements.txt`.
 
 ---
 

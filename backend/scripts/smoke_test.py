@@ -8,16 +8,20 @@ Drives the exact sequence a judge will see, through the public API only:
           -> Take over -> Outcomes -> RESET
 
 Run the backend, then:  python scripts/smoke_test.py
+
+Point it at a deployed instance with:
+    PULSE_API_URL=https://your-api.onrender.com python scripts/smoke_test.py
 """
 
 from __future__ import annotations
 
+import os
 import sys
 import time
 
 import httpx
 
-BASE = "http://127.0.0.1:8000"
+BASE = os.environ.get("PULSE_API_URL", "http://127.0.0.1:8000").rstrip("/")
 TIMEOUT = 60.0
 failures: list[str] = []
 
