@@ -1,0 +1,70 @@
+# Render blueprint for the Paytm Pulse backend.
+#
+# The FastAPI backend needs a *persistent process*, not serverless functions:
+# agent missions run as background asyncio tasks after the HTTP response has
+# returned, the event bus holds in-memory SSE subscribers, and Server-Sent
+# Events are long-lived connections. Render runs it as an ordinary web service,
+# which suits all three.
+#
+# The Next.js frontend is deployed separately on Vercel and points at this
+# service through NEXT_PUBLIC_API_URL.
+
+services:
+  - type: web
+    name: paytm-pulse-api
+    runtime: python
+    plan: free
+    region: singapore
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.13.4"
+
+      # Allow the Vercel production domain and every preview deployment.
+      - key: CORS_ORIGIN_REGEX
+        value: https://paytm-pulse.*\.vercel\.app
+
+      # Pacing for the live timeline. Lower it for automated runs.
+      - key: AGENT_STEP_DELAY_MS
+        value: "550"
+
+      # Hackathon demo policy — not Paytm's production policy.
+      - key: REFUND_APPROVAL_THRESHOLD
+        value: "1000"
+
+      # Guards the mutating /paytm/* boundary endpoints. Generated per process
+      # when blank, which is correct unless n8n needs to call in — then set the
+      # same value here and in n8n.
+      - key: INTERNAL_API_KEY
+        sync: false
+
+      # Every integration below is optional. Left unset, the backend runs on
+      # its deterministic local fallbacks and the UI labels each one.
+      - key: LLM_PROVIDER
+        sync: false
+      - key: LLM_API_KEY
+        sync: false
+      - key: LLM_MODEL
+        sync: false
+      - key: SARVAM_API_KEY
+        sync: false
+      - key: COGNEE_API_URL
+        sync: false
+      - key: COGNEE_API_KEY
+        sync: false
+      - key: N8N_BASE_URL
+        sync: false
+      - key: N8N_API_KEY
+        sync: false
+
+      # DATABASE_URL unset -> SQLite on the instance disk, seeded on boot.
+      # Render's free tier has an ephemeral filesystem, so the demo dataset is
+      # recreated on each restart, which is the same state Reset demo produces.
+      # Attach a Postgres instance and set DATABASE_URL to persist history;
+      # psycopg is already in requirements.txt.
+      - key: DATABASE_URL
+        sync: false

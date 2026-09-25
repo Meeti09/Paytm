@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     node_env: str = "development"
     port: int = 8000
     cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
+    # Optional regex for hosted frontends whose origin varies — e.g. Vercel
+    # preview deployments: https://paytm-pulse-.*\.vercel\.app
+    cors_origin_regex: str = ""
 
     # ---- Database ----------------------------------------------------
     # Empty -> local SQLite file. A PostgreSQL URL works unchanged.
@@ -82,9 +85,13 @@ class Settings(BaseSettings):
     def sqlalchemy_url(self) -> str:
         if self.database_url:
             url = self.database_url
-            # SQLAlchemy needs the postgresql+psycopg2 style scheme.
+            # Managed Postgres providers hand out `postgres://`, which
+            # SQLAlchemy does not accept. Normalise to the psycopg 3 dialect —
+            # the driver shipped in requirements.txt.
             if url.startswith("postgres://"):
-                url = url.replace("postgres://", "postgresql://", 1)
+                url = url.replace("postgres://", "postgresql+psycopg://", 1)
+            elif url.startswith("postgresql://"):
+                url = url.replace("postgresql://", "postgresql+psycopg://", 1)
             return url
         return f"sqlite:///{(BACKEND_DIR / 'pulse.db').as_posix()}"
 
